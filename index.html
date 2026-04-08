@@ -21,8 +21,7 @@ tbody td { padding: 13px 16px; }
 .badge-fr  { background: #365314; color: #a3e635; }
 .badge-spr { background: #713f12; color: #fbbf24; }
 .check   { color: #22c55e; font-weight: 700; }
-.pending { color: #ef4444; }
-.dash    { color: #475569; }
+.pending { color: #475569; }
 .note { font-size: 0.85rem; color: #94a3b8; font-style: italic; }
 footer { text-align: center; color: #475569; font-size: 0.9rem; padding: 8px 0; flex-shrink: 0; }
 #error-msg { color: #ef4444; font-size: 0.9rem; margin-top: 4px; min-height: 1em; }
@@ -53,47 +52,42 @@ const REFRESH_MS = 5 * 60 * 1000;
 
 function parseCSV(text) {
   const lines = text.trim().split('\n');
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-  return lines.slice(1).map(line => {
-    const cols = [];
-    let cur = '', inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      const c = line[i];
-      if (c === '"') { inQ = !inQ; }
-      else if (c === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
-      else { cur += c; }
-    }
-    cols.push(cur.trim());
-    const row = {};
-    headers.forEach((h, i) => row[h] = (cols[i] || '').replace(/^"|"$/g, '').trim());
-    return row;
-  });
+  // Find the header row (first row that starts with "Date")
+  let headerIdx = lines.findIndex(l => l.trim().toLowerCase().startsWith('date'));
+  if (headerIdx === -1) headerIdx = 0;
+  const headers = lines[headerIdx].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  // Data rows come after headers, filter out blanks
+  const rows = lines.slice(headerIdx + 1)
+    .filter(l => l.replace(/,/g, '').trim() !== '')
+    .map(line => {
+      const cols = [];
+      let cur = '', inQ = false;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"') { inQ = !inQ; }
+        else if (c === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+        else { cur += c; }
+      }
+      cols.push(cur.trim());
+      const row = {};
+      headers.forEach((h, i) => row[h] = (cols[i] || '').replace(/^"|"$/g, '').trim());
+      return row;
+    });
+  return rows;
 }
 
 function checkCell(val) {
   const v = (val || '').toLowerCase().trim();
-  if (v === 'yes' || v === '✓' || v === 'true' || v === 'y' || v === '1')
+  if (v === 'x' || v === 'yes' || v === '✓' || v === 'true' || v === 'y' || v === '1')
     return '<span class="check">✓</span>';
-  if (v === 'no' || v === 'n' || v === 'false' || v === '0')
-    return '<span class="pending">✗</span>';
-  if (!v || v === '—' || v === '-' || v === '')
-    return '<span class="dash">—</span>';
-  return val;
+  return '<span class="pending">—</span>';
 }
 
 function statusBadge(val) {
   const v = (val || '').toUpperCase().trim();
   if (v === 'FR')  return '<span class="badge badge-fr">FR</span>';
   if (v === 'SPR') return '<span class="badge badge-spr">SPR</span>';
-  return val || '—';
-}
-
-function get(row, ...keys) {
-  for (const k of keys) {
-    const v = row[k] || row[k.toLowerCase()] || row[k.toUpperCase()];
-    if (v !== undefined && v !== '') return v;
-  }
-  return '';
+  return `<span class="badge" style="background:#1e293b;color:#94a3b8">${v||'—'}</span>`;
 }
 
 async function loadData() {
@@ -101,22 +95,24 @@ async function loadData() {
     const res = await fetch(CSV_URL + '&nocache=' + Date.now());
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();
-    const rows = parseCSV(text).filter(r => get(r, 'Date'));
-    const last10 = rows.slice(-10).reverse();
+    const rows = parseCSV(text).filter(r => (r['Date'] || '').trim());
 
-    document.getElementById('tbody').innerHTML = last10.map((r, i) => `
+    // Sheet is newest-first after headers, take top 10
+    const top10 = rows.slice(0, 10);
+
+    document.getElementById('tbody').innerHTML = top10.map((r, i) => `
       <tr>
-        <td>${get(r, 'Date')}</td>
-        <td>${get(r, 'Qty', 'QTY')}</td>
-        <td>${statusBadge(get(r, 'Status', 'STATUS'))}</td>
-        <td>${get(r, 'Lact', 'LACT')}</td>
-        <td>${get(r, 'Jockey', 'JOCKEY')}</td>
-        <td>${get(r, 'Location', 'LOCATION')}</td>
-        <td>${get(r, 'Invoice', 'INVOICE')}</td>
-        <td>${checkCell(get(r, 'Here', 'HERE'))}</td>
-        <td>${checkCell(get(r, 'DC'))}</td>
-        <td>${get(r, 'Jockey #', 'JOCKEY #') || '—'}</td>
-        <td class="note">${get(r, 'Notes', 'NOTES') || (i === 0 ? 'Most recent' : '')}</td>
+        <td>${r['Date'] || ''}</td>
+        <td>${r['Qty'] || ''}</td>
+        <td>${statusBadge(r['Status'])}</td>
+        <td>${r['Lact'] || ''}</td>
+        <td>${r['Jocky'] || r['Jockey'] || ''}</td>
+        <td>${r['Location'] || ''}</td>
+        <td>${r['Invoice'] || ''}</td>
+        <td>${checkCell(r['Here'])}</td>
+        <td>${checkCell(r['DC'])}</td>
+        <td>${r['JOCKEY'] || r['Jockey #'] || '—'}</td>
+        <td class="note">${r['Notes'] || r['notes'] || (i === 0 ? 'Most recent' : '')}</td>
       </tr>
     `).join('');
 
